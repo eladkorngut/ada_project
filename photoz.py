@@ -3,16 +3,9 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
-from sklearn.datasets.samples_generator import make_blobs
 from sklearn.cluster import KMeans
 from sklearn import linear_model
 from sklearn.model_selection import train_test_split
-
-# from sklearn.model_selection import train_test_split
-# from sklearn.metrics import accuracy_score
-# from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-# from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis
-# from sklearn.linear_model import LogisticRegression
 from mpl_toolkits.mplot3d import Axes3D
 
 def standertize_data(df,features):
@@ -143,9 +136,12 @@ def predictions_test_set(linear_aprox_array,kmeans_model,test_set,size_centers):
     # closest_cluster=kmeans_model.predict(test_set_array)
     for t in test_set_array:
         closest_cluster_index=find_closest_cluster_pca_only(t, kmeans_model, size_centers)
-        temp= int(closest_cluster_index)
-        prediction_for_t.append(float(linear_aprox_array[temp].predict([t])))
-    return np.array(prediction_for_t)
+        prediction_for_t.append(float(linear_aprox_array[int(closest_cluster_index)].predict([t])))
+    pd_pred = pd.DataFrame(np.asarray(prediction_for_t),index=test_set.index.values ,columns=['Prediction'])
+    pd_return=pd.concat([test_set, pd_pred],axis=1)
+    rel_err = np.absolute(pd_return['z'] - pd_return['Prediction']) * 100 / pd_return['z']
+    pd_return = pd_return.assign(Error=rel_err)
+    return pd_return
 
 #Main body of the program start here
 #importing data and assigning what are the features (the DF without the errors)
@@ -167,20 +163,8 @@ print_kmeans_model_selction(df_pca_z, kmeans_model)
 df_pca_z_model = create_df_pca_z_model(df_pca_z, kmeans_model)
 array_of_lin_models=linear_fit_all(df_pca_z_model,size_cluster)
 
-#This part should change as soon as possible to: x_train,x_test,y_train,y_test=train_test_split(x,y,test_size=0.2)
+#Bellow, final_analysis, is the most important piece of the work it answer the research question
+final_analysis = predictions_test_set(array_of_lin_models, kmeans_model, test_set, size_cluster)
 
-new_point_pca0=3.33205
-new_point_pca1=0.28077
-new_point_pca2=-0.4478
-test_set=[[new_point_pca0, new_point_pca1, new_point_pca2]]
-test_set=pd.DataFrame(data=test_set, columns=["PCA 0", "PCA 1", "PCA 2"])
-
-
-
-# train_set, test_set = train_test_split(df_pca_z_model,test_size=0.2)
-# train_set.head()
-
-predictions = predictions_test_set(array_of_lin_models, kmeans_model, test_set, size_cluster)
-print(predictions)
 
 
