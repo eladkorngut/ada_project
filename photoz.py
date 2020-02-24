@@ -6,6 +6,7 @@ from sklearn.decomposition import PCA
 from sklearn.datasets.samples_generator import make_blobs
 from sklearn.cluster import KMeans
 from sklearn import linear_model
+from sklearn.model_selection import train_test_split
 
 # from sklearn.model_selection import train_test_split
 # from sklearn.metrics import accuracy_score
@@ -20,20 +21,16 @@ def standertize_data(df,features):
     x = StandardScaler().fit_transform(x)
     return x
 
-def df_pca(df,features,component_num):
-    col=[]
-    # Function that will retun a dataframe with a given number of components (component_num) and z
+def df_pca_only(df,features,component_num):
+    # Function that will retun a dataframe with a given number of components (component_num)
     sd_data=standertize_data(df,features)
     pca = PCA(n_components=component_num)
     pc=pca.fit_transform(sd_data)
-    # for i in range(component_num):
-    #     col.append('Principal component'+str(i))
-    temp=range(component_num)
-    temp=map(str,temp)
-    col=np.core.defchararray.add(['PCA '],temp)
-    principalDf = pd.DataFrame(data=pc, columns=col)
-    finalDF = pd.concat([principalDf, df[['z']]], axis=1)
-    return finalDF
+    return sd_data, pd.DataFrame(data=pc, columns=np.core.defchararray.add(['PCA '],map(str,range(component_num))))
+
+def df_pca_with_z(df_pca_only,df_cvs_file):
+    # Function that will return a dataframe with a given number of components (component_num) and z
+    return pd.concat([df_pca_only, df_cvs_file[['z']]], axis=1)
 
 def print_pca_2_component(finalDF):
     #Printing and saving the graph for 2 components vs z
@@ -63,65 +60,127 @@ def print_pca_component_var(pca_ratios,features_size):
     plt.show()
     fig.savefig('/home/elad/Advance data analysis/ada_project/pca_bar_var.png', dpi=100)
 
+def print_pca_heatmap(df_pca3_z,fig):
+    plt.scatter(df_pca3_z['PCA 0'], df_pca3_z['PCA 1'], c=df_pca3_z['z'], cmap='coolwarm')
+    plt.title('The two most dominant PCA vs redshift (z) ', fontweight='bold', color='black', fontsize='16',
+              horizontalalignment='center')
+    plt.xlabel('PCA 1', fontweight='bold', color='black', fontsize='13', horizontalalignment='center')
+    plt.ylabel('PCA 2', fontweight='bold', color='black', fontsize='13', horizontalalignment='center')
 
-def pca_results(df,features):
-    #The function print and save the variance at each component and the 3d model, answer question 1b
-    pca_df=df_pca(df,features,2) #The data frame for two components
-    print_pca_2_component(pca_df)
+
+def pca_results(sd_data,features):
+    #The function retuns the PCA model used to transfrom the data
     #Code bellow is for getting how much of the variance is contained in each component
-    sd_data=standertize_data(df,features)
     features_size=np.size(features)
-    pca = PCA(n_components=features_size)
-    pca.fit_transform(sd_data)
+    pca = PCA(n_components=features_size) #The model that is used for the pca
+    pca_vec=pca.fit_transform(sd_data)
+    return pca, pca_vec
+
+def print_pca_data(pca,df,features_size):
+    #The function print and save the variance at each component and the heatmap for 2 PCA, answer question 1b
+    fig = plt.gcf()
+    print_pca_heatmap(df,fig)
+    fig.savefig('/home/elad/Advance data analysis/ada_project/scatter_heat.png', dpi=100)
+    plt.show()
     pca_ratios = pca.explained_variance_ratio_
     print_pca_component_var(pca_ratios, features_size)
 
+def print_kmeans_heatmap(df,kmeans_model):
+    fig = plt.gcf()
+    print_pca_heatmap(df,fig)
+    centers=kmeans_model.cluster_centers_
+    plt.scatter(centers[:, 0], centers[:, 1], c='black', s=200, alpha=0.5)
+    fig.savefig('/home/elad/Advance data analysis/ada_project/heat_map_kmeans.png', dpi=100)
+    plt.show()
+
+def print_kmeans_model_selction(df,kmeans_model):
+    fig = plt.gcf()
+    print_pca_heatmap(df,fig)
+    lin_model_num=kmeans_model.labels_
+    plt.scatter(df['PCA 0'], df['PCA 1'], c=lin_model_num, cmap='brg')
+    fig.savefig('/home/elad/Advance data analysis/ada_project/model_selction_kmeans.png', dpi=100)
+    plt.show()
+
+def create_df_pca_z_model(df,kmeans_model):
+    return pd.concat([df, pd.DataFrame(kmeans_model.labels_,columns=['Model'])], axis=1)
+
+def select_model_data(df,m):
+    return df[df['Model'] == m]
+
+def separate_data_target(df):
+    return df[['PCA 0', 'PCA 1', 'PCA 2']],  df[['z']]
+
+def linear_fit_1kmean(df,m,regr):
+    x, y =separate_data_target(select_model_data(df, m))
+    # pca_data_labels =["PCA 0", "PCA 1", "PCA 2"]
+    # pca_data = x.loc[:, pca_data_labels].values
+    # pca_z=y.loc[:,['z']].values
+    return regr.fit(x,y)
+
+def linear_fit_all(df,size_models):
+    linear_model_fits=[]
+    for i in range(size_models):
+        regr = linear_model.LinearRegression()
+        linear_model_fits.append(linear_fit_1kmean(df, i, regr))
+    return linear_model_fits
+
+def find_closest_cluster_pca_only(test_set_point,kmeans_model,size_centers):
+    centers=kmeans_model.cluster_centers_
+    no_z_centers = np.delete(centers,3,1)
+    #What written below should be joined into one command
+    test_set_point=([test_set_point,]*size_centers)
+    sub=np.subtract(no_z_centers,test_set_point)
+    sq=np.square(sub)
+    sum_sq=np.sum(sq,axis=1)
+    min_value=np.min(sum_sq)
+    min_index=np.where(sum_sq == min_value)
+    return min_index[0]
+
+def predictions_test_set(linear_aprox_array,kmeans_model,test_set,size_centers):
+    prediction_for_t=[]
+    features=['PCA 0', 'PCA 1', 'PCA 2']
+    test_set_array = test_set.loc[:, features].values   #assuming passing a dataframe then needs to convert to array
+    # closest_cluster=kmeans_model.predict(test_set_array)
+    for t in test_set_array:
+        closest_cluster_index=find_closest_cluster_pca_only(t, kmeans_model, size_centers)
+        temp= int(closest_cluster_index)
+        prediction_for_t.append(float(linear_aprox_array[temp].predict([t])))
+    return np.array(prediction_for_t)
 
 #Main body of the program start here
 #importing data and assigning what are the features (the DF without the errors)
-
+component_num=3
+size_cluster=5
 df=pd.read_csv('/home/elad/Advance data analysis/ada_project/Redshift_table.csv')
 features=['up','gp','rp', 'ip', 'zp','Y', 'J', 'H', 'K', 'IRAC_1', 'IRAC_2']
-#pca_results(df,features)
-
-one_var_df=df_pca(df,features,3)
-fig = plt.gcf()
-plt.scatter(one_var_df['PCA 0'],one_var_df['z'])
-plt.show()
-plt.scatter(one_var_df['PCA 1'],one_var_df['z'])
-plt.show()
-fig = plt.gcf()
-plt.scatter(one_var_df['PCA 0'],one_var_df['PCA 1'],c=one_var_df['z'],cmap='coolwarm')
-fig.savefig('/home/elad/Advance data analysis/ada_project/scatter_heat.png',dpi=100)
-plt.show()
-
-sd_data = standertize_data(df, features)
-pca = PCA(n_components=2)
-pc = pca.fit_transform(sd_data)
-# for i in range(component_num):
-#     col.append('Principal component'+str(i))
-temp = range(2)
-temp = map(str, temp)
-col = np.core.defchararray.add(['PCA '], temp)
-principalDf = pd.DataFrame(data=pc, columns=col)
-k=KMeans(n_clusters=5).fit(one_var_df)
-centers=k.cluster_centers_
-plt.scatter(principalDf['PCA 0'],principalDf['PCA 1'],c=one_var_df['z'],cmap='coolwarm')
-plt.scatter(centers[:, 0], centers[:, 1], c='black', s=200, alpha=0.5)
-plt.show()
-lin_model_num=k.labels_
-plt.scatter(principalDf['PCA 0'],principalDf['PCA 1'],c=lin_model_num,cmap='brg')
-plt.show()
-lin_model_num_df=pd.DataFrame(lin_model_num,columns=['Model'])
-data_model_num = pd.concat([one_var_df, lin_model_num_df], axis=1)
-x=data_model_num[data_model_num['Model']==3]
-x_trunck=x[['PCA 0', 'PCA 1']]
-y=x[['z']]
-regr=linear_model.LinearRegression()
-regr.fit(x_trunck,y)
-new_point_pca0=12.322401
-new_point_pca1=-5.58670
-temp=regr.predict([[new_point_pca0,new_point_pca1]])
+sd_data, df_pca=df_pca_only(df,features,component_num)
+df_pca_z=df_pca_with_z(df_pca, df)
+pca_model, pca_array=pca_results(sd_data, features)
+print_pca_data(pca_model, df_pca_z, np.size(features))
 
 
-# plt.scatter(one_var_df['PCA 0'],one_var_df['PCA 1'],one_var_df['PCA 2'],c=one_var_df['z'],cmap='plasma')
+kmeans_model = KMeans(n_clusters=size_cluster).fit(df_pca_z)
+train_set, test_set = train_test_split(df_pca_z,test_size=0.2)
+print_kmeans_heatmap(train_set, kmeans_model)
+print_kmeans_model_selction(df_pca_z, kmeans_model)
+
+df_pca_z_model = create_df_pca_z_model(df_pca_z, kmeans_model)
+array_of_lin_models=linear_fit_all(df_pca_z_model,size_cluster)
+
+#This part should change as soon as possible to: x_train,x_test,y_train,y_test=train_test_split(x,y,test_size=0.2)
+
+new_point_pca0=3.33205
+new_point_pca1=0.28077
+new_point_pca2=-0.4478
+test_set=[[new_point_pca0, new_point_pca1, new_point_pca2]]
+test_set=pd.DataFrame(data=test_set, columns=["PCA 0", "PCA 1", "PCA 2"])
+
+
+
+# train_set, test_set = train_test_split(df_pca_z_model,test_size=0.2)
+# train_set.head()
+
+predictions = predictions_test_set(array_of_lin_models, kmeans_model, test_set, size_cluster)
+print(predictions)
+
+
