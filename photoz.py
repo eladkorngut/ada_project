@@ -6,6 +6,7 @@ from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
 from sklearn import linear_model
 from sklearn.model_selection import train_test_split
+from scipy import stats
 from mpl_toolkits.mplot3d import Axes3D
 
 def standertize_data(df,features):
@@ -16,14 +17,15 @@ def standertize_data(df,features):
 
 def df_pca_only(df,features,component_num):
     # Function that will retun a dataframe with a given number of components (component_num)
-    sd_data=standertize_data(df,features)
+    sd_data = standertize_data(df,features)
     pca = PCA(n_components=component_num)
     pc=pca.fit_transform(sd_data)
     return sd_data, pd.DataFrame(data=pc, columns=np.core.defchararray.add(['PCA '],map(str,range(component_num))))
 
 def df_pca_with_z(df_pca_only,df_cvs_file):
     # Function that will return a dataframe with a given number of components (component_num) and z
-    return pd.concat([df_pca_only, df_cvs_file[['z']]], axis=1)
+    df_cvs_file.reset_index(inplace=True)
+    return pd.concat([df_pca_only, df_cvs_file['z']],axis=1)
 
 def print_pca_2_component(finalDF):
     #Printing and saving the graph for 2 components vs z
@@ -46,15 +48,15 @@ def print_pca_component_var(pca_ratios,features_size):
     fig = plt.gcf()
     plt.bar(compnent_num, pca_ratios)
     plt.xticks(compnent_num)
-    plt.title('The variance vs component number', fontweight='bold', color='black', fontsize='16',
+    plt.title('The information held vs component number', fontweight='bold', color='black', fontsize='16',
               horizontalalignment='center')
     plt.xlabel('Component number', fontweight='bold', color='black', fontsize='13', horizontalalignment='center')
-    plt.ylabel('Variance', fontweight='bold', color='black', fontsize='13', horizontalalignment='center')
+    plt.ylabel('Information', fontweight='bold', color='black', fontsize='13', horizontalalignment='center')
     plt.show()
     fig.savefig('/home/elad/Advance data analysis/ada_project/pca_bar_var.png', dpi=100)
 
 def print_pca_heatmap(df_pca3_z,fig):
-    plt.scatter(df_pca3_z['PCA 0'], df_pca3_z['PCA 1'], c=df_pca3_z['z'], cmap='coolwarm')
+    plt.scatter(df_pca3_z['PCA 0'], df_pca3_z['PCA 1'], c=df_pca3_z['z'], cmap='plasma')
     plt.title('The two most dominant PCA vs redshift (z) ', fontweight='bold', color='black', fontsize='16',
               horizontalalignment='center')
     plt.xlabel('PCA 1', fontweight='bold', color='black', fontsize='13', horizontalalignment='center')
@@ -76,6 +78,7 @@ def print_pca_data(pca,df,features_size):
     fig.savefig('/home/elad/Advance data analysis/ada_project/scatter_heat.png', dpi=100)
     plt.show()
     pca_ratios = pca.explained_variance_ratio_
+    print('The information precentage held by each PCA is ', 100*pca_ratios)
     print_pca_component_var(pca_ratios, features_size)
 
 def print_kmeans_heatmap(df,kmeans_model):
@@ -130,6 +133,8 @@ def find_closest_cluster_pca_only(test_set_point,kmeans_model,size_centers):
     return min_index[0]
 
 def predictions_test_set(linear_aprox_array,kmeans_model,test_set,size_centers):
+    #This function uses the linear models that were found to return prediction and
+    #relative error between the prediction and the real value from training set
     prediction_for_t=[]
     features=['PCA 0', 'PCA 1', 'PCA 2']
     test_set_array = test_set.loc[:, features].values   #assuming passing a dataframe then needs to convert to array
@@ -143,11 +148,32 @@ def predictions_test_set(linear_aprox_array,kmeans_model,test_set,size_centers):
     pd_return = pd_return.assign(Error=rel_err)
     return pd_return
 
+def kde_pdf(df,z_axis):
+    kde = stats.gaussian_kde(df['z'])
+    pdf = kde.evaluate(z_axis)
+    kde_pred = stats.gaussian_kde(df['Prediction'])
+    pdf_pred = kde_pred.evaluate(z_axis)
+    return pdf, pdf_pred
+
+def print_pdf_kde(pdf,pdf_pred,z_axis):
+    fig = plt.gcf()
+    plt.plot(z_axis, pdf)
+    plt.plot(z_axis, pdf_pred, color='red')
+    plt.title('Pdf test set (blue) and prediciton (red)', fontweight='bold', color='black', fontsize='16',
+              horizontalalignment='center')
+    plt.xlabel('z', fontweight='bold', color='black', fontsize='13', horizontalalignment='center')
+    plt.ylabel('PDF', fontweight='bold', color='black', fontsize='13', horizontalalignment='center')
+    fig.savefig('/home/elad/Advance data analysis/ada_project/pdf_pred_org.png', dpi=100)
+    plt.show()
+
+
 #Main body of the program start here
 #importing data and assigning what are the features (the DF without the errors)
 component_num=3
-size_cluster=5
+size_cluster=20
 df=pd.read_csv('/home/elad/Advance data analysis/ada_project/Redshift_table.csv')
+df=df[df['IRAC_1_err']!=-1]
+df=df[df['IRAC_2_err']!=-1]
 features=['up','gp','rp', 'ip', 'zp','Y', 'J', 'H', 'K', 'IRAC_1', 'IRAC_2']
 sd_data, df_pca=df_pca_only(df,features,component_num)
 df_pca_z=df_pca_with_z(df_pca, df)
@@ -163,8 +189,9 @@ print_kmeans_model_selction(df_pca_z, kmeans_model)
 df_pca_z_model = create_df_pca_z_model(df_pca_z, kmeans_model)
 array_of_lin_models=linear_fit_all(df_pca_z_model,size_cluster)
 
-#Bellow, final_analysis, is the most important piece of the work it answer the research question
-final_analysis = predictions_test_set(array_of_lin_models, kmeans_model, test_set, size_cluster)
-
-
-
+#Bellow, analysis, is the most important piece of the work it answer the research question
+analysis = predictions_test_set(array_of_lin_models, kmeans_model, test_set, size_cluster)
+kde = stats.gaussian_kde(analysis['z'])
+z_axis = np.linspace(0, 2, 110)
+pdf_test_set, pdf_prediction = kde_pdf(analysis,z_axis)
+print_pdf_kde(pdf_test_set, pdf_prediction, z_axis)
