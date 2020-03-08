@@ -13,6 +13,7 @@ from sklearn import linear_model
 from sklearn.model_selection import train_test_split
 from scipy import stats
 from sklearn.metrics import mean_squared_error
+import seaborn as sns
 from mpl_toolkits.mplot3d import Axes3D
 
 def standertize_data(df,features):
@@ -179,9 +180,7 @@ def predictions_test_set(linear_aprox_array,
         (float(linear_aprox_array
         [int(closest_cluster_index)]
         .predict([t])))
-    pd_pred = pd.DataFrame(np.asarray(prediction_for_t),
-    index=test_set.index
-    .values ,columns=['Prediction'])
+    pd_pred = pd.DataFrame(np.asarray(prediction_for_t),index=test_set.index.values ,columns=['Prediction'])
     pd_return=pd.concat([test_set, pd_pred],axis=1)
     rel_err = np.absolute(pd_return['z'] -
     pd_return['Prediction']) * 100 / pd_return['z']
@@ -256,6 +255,50 @@ def print_elbow_method(df,):
     fig.savefig('/home/elad/Advance data analysis/'
     'ada_project/elbow_method.png', dpi=100)
 
+
+def prediction_high_z(analysis,df_high_z,z_cutoff):
+    kde = stats.gaussian_kde(df_high_z['z'])
+    for t in analysis[analysis['Prediction']>z_cutoff]['Prediction']:
+        high_z_axis=np.linspace(t,2,100)
+        pdf=kde.evaluate(high_z_axis)
+        pdf = pdf / np.sum(pdf)
+        prediction = np.random.choice(high_z_axis, 1, True, pdf)
+        prediction=prediction[0]
+        mask=analysis.Prediction == t
+        column_name='Prediction'
+        analysis.loc[mask, column_name] = prediction
+    return analysis
+
+def print_heatmap_cov_correlation(df,title,file_name):
+    fig = plt.gcf()
+    fig.suptitle(title,verticalalignment='top',size='small')
+    sns.heatmap(df, cmap='plasma',)
+    fig.savefig('/home/elad/Advance data analysis/ada_project/'+file_name)
+    plt.show()
+
+
+def find_errors(df_pca_z_model,array_of_lin_models,covarince_error,correlation_pca_feature,component_num,size_cluster):
+    meas_error=np.zeros(len(array_of_lin_models))
+    correlation_pca_feature_shape = np.shape(correlation_pca_feature)
+    for l in range(len(array_of_lin_models)):
+        for i in range(component_num):
+            for j in range(correlation_pca_feature_shape[1]):
+                for m in range(array_of_lin_models[l].coef_.size):
+                    meas_error[l]+= array_of_lin_models[l].coef_[0][m] * correlation_pca_feature.iloc[i, j] * covarince_error.iloc[i, j]
+    meas_error=np.sqrt(meas_error)
+    RMSE = np.zeros(size_cluster)
+    score_models=np.zeros(size_cluster)
+    for m in range(size_cluster):
+        temp=df_pca_z_model[df_pca_z_model['Model'] == m]
+        data = df_pca_z_model[df_pca_z_model['Model'] == m].loc[:, ['PCA 0', 'PCA 1', 'PCA 2']].values
+        real_val = df_pca_z_model[df_pca_z_model['Model'] == m].loc[:, ['z']].values
+        prediction = array_of_lin_models[m].predict(data)
+        RMSE[m] = np.sqrt(mean_squared_error(prediction,real_val))
+        score_models[m]=array_of_lin_models[m].score(data,real_val)
+    df=pd.DataFrame({"Measurement error":meas_error,'RMSE':RMSE, 'Score':score_models })
+    return df
+
+
 #Main body of the program start here
 #importing data and assigning what
 # are the features (the DF without the errors)
@@ -325,3 +368,53 @@ np.std(test_set['z']))/np.std(test_set['z'])*100)
 
 print('The p value is: ',stats.ttest_ind(analysis['z'],analysis['Prediction']))
 print_elbow_method(df_pca_z)
+
+
+
+
+z_cutoff=1.3
+df_high_z=df_pca_z[df_pca_z['z']>z_cutoff]
+analysis=prediction_high_z(analysis,df_high_z,z_cutoff)
+print_RMSE_z_pred(analysis,RMSE)
+print('The high redshift (z) std is ', np.std(df_high_z['z']))
+
+
+correlation_matrix_data=pd.DataFrame(np.cov(np.transpose(sd_data)),columns=features,index=features)
+
+covariance_data=pd.DataFrame(np.cov(np.transpose(df[features])),columns=features,index=features)
+errors= ['up_err','gp_err','rp_err', 'ip_err', 'zp_err','Y_err','J_err',
+         'H_err', 'K_err', 'IRAC_1_err', 'IRAC_2_err']
+covariance_error = pd.DataFrame(np.cov(np.transpose(df[errors])),columns=errors,index=errors)
+sd_errors = StandardScaler().fit_transform(df[errors])
+correlation_errors= pd.DataFrame(np.cov(np.transpose(sd_errors)),columns=errors,index=errors)
+print_heatmap_cov_correlation(correlation_matrix_data,"Correlation data",'cov_matrix.png')
+print_heatmap_cov_correlation(covariance_data,"Covariance data",'cov_matrix.png')
+print_heatmap_cov_correlation(covariance_error,"Covariance error",'cov_matrix.png')
+print_heatmap_cov_correlation(correlation_errors,"Correlation errors",'cov_matrix.png')
+df_comp = pd.DataFrame(pca_model.components_,columns=features,index=np.core.defchararray.add(['PC '],
+            map(str,range(11))))
+print_heatmap_cov_correlation(df_comp,"PC vs feauters",'pc_vs_fetuares.png')
+
+
+
+temp=array_of_lin_models[0].coef_
+#this is for a particular model
+dim_df_comp=np.shape(df_comp)
+temp_model=array_of_lin_models[0]
+delta_z=0.0
+temp=df_comp.iloc[1,2]
+for i in range(3):
+    for j in range(dim_df_comp[1]):
+        for m in range(temp_model.coef_.size):
+            delta_z+=temp_model.coef_[0][m]*df_comp.iloc[i,j]*covariance_error.iloc[i,j]
+# temp2 = find_errors(df_pca_z_model,array_of_lin_models,covariance_error,df_comp,component_num)
+# for m in range(size_cluster):
+#     temp_df=df_pca_z_model['Model'==m]
+#     RMSE = np.sqrt(mean_squared_error
+#                    (analysis['z'], analysis['Prediction']))
+
+# temp_model.score()
+df_errors= find_errors(df_pca_z_model,array_of_lin_models,covariance_error,
+                   df_comp,component_num,size_cluster)
+
+
